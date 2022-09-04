@@ -1,0 +1,15 @@
+/* TEAM */
+
+      Symbionts Team,
+      https://twitter.com/Ecosynthesizer
+      https://steemit.com/@syymbionts
+      Development funding, ops, and HR.
+  
+      Michael David Montero
+      https://steemit.com/@damurq
+      Devloper. Python, C++, JS, SQL.
+   
+/* PROJECT */
+
+      Last update:2022/09/03
+      Language: English

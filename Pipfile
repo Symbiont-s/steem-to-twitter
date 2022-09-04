@@ -1,0 +1,18 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+tinydb = "*"
+tweepy = {extras = ["async"], version = "*"}
+flask = "*"
+waitress = "*"
+wheel = "*"
+gunicorn = "*"
+beem = "==0.24.21"
+
+[requires]
+python_version = "3.8"

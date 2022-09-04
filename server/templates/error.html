@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Error registering token</title>
+    <link rel="stylesheet" href="{{ url_for("static", filename="error.css") }}">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+  </head>
+  <body>
+    <div class="errorModule">
+        <div class="errorIcon">
+          <i class="fa fa-unlink"></i>
+        </div>
+        <div class="errorMsg">
+            <h1 class="success-message__title">Error registering token</h1>
+            {% if msg %} {{ msg }} {% else %} Registered token {% endif %}
+        </div>
+      </div>
+  </body>
+</html>

@@ -110,6 +110,13 @@ def hard_pause(account:str):
             pause.insert({"current":MINUTES,"date":now.strftime("%Y-%m-%d %H:%M:%S"),"account":account})
             limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES}, 
                             ((User.account == account)&(User.name==MINUTES)))
+            search = limit.search((User.account == account)&(User.name==HOURS))
+            if search:
+                if search[0]["count"] < LIMIT_RATE_FOR_15_MINUTES:
+                    limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES}, 
+                                   ((User.account == account)&(User.name==MINUTES)))
+            else:
+                limit.insert({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES})
     except Exception as e:
         dict_exceptions = Exception_Handling().hard_pause
         exception_handling(e,"hard_pause",dict_exceptions) 

@@ -11,7 +11,7 @@ from error.exceptions           import Exception_Handling
 from settings.general           import *
 from utils.const                import *
 from utils.rate_limits          import verify_limit_of_requests
-from utils.utils                import from_list_to_str, build_url, category_is_empty, required_tags
+from utils.utils                import from_list_to_str, build_url, category_is_empty, required_tags, empty_json
 
 # Settings
 cfg = Config()
@@ -57,11 +57,9 @@ def stream(feature):
                     continue
                 if cfg.features["personalized_accounts"]["activate"]:
                     # start action thread
-                    acaoThread = threading.Thread(target=make_a_twet, args=(author, permlink, tags,category, feature))
-                    acaoThread.start()
+                    make_a_twet(author, permlink, tags,category, feature)
                     continue
-                acaoThread = threading.Thread(target=make_a_twet, args=(author, permlink, tags,category, feature))
-                acaoThread.start()
+                make_a_twet(author, permlink, tags,category, feature)
             except Exception as e:
                 dict_exceptions = excpt.twet
                 exception_handling(e,"twet",dict_exceptions) 
@@ -86,6 +84,8 @@ def make_a_twet(author, permlink, tags, category, feature):
 
 if __name__ == '__main__':
     try:
+        empty_json("data/hard_pause.json")
+        empty_json("data/rate_limit.json")
         count_f = {"count":0,"feature":""}
         for feature in FEATURES:
             if cfg.features[feature]["activate"]:

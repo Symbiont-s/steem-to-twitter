@@ -1,122 +1,103 @@
 # Standar library
-from datetime                   import datetime, timedelta, timezone
+import json
+import threading
 # Third party library
-from tinydb                     import TinyDB, Query
+from beem.blockchain            import Blockchain
+from beem                       import Steem
 # Local
+from features.tweets            import manage_tweets
 from error.exception_handling   import exception_handling
 from error.exceptions           import Exception_Handling
-from utils.const                import MINUTES, HOURS, LIMIT_RATE_FOR_15_MINUTES, LIMIT_RATE_FOR_3_HOURS, TIME_IN_HOURS_OF_THE_RATE_LIMIT
+from settings.general           import *
+from utils.const                import *
+from utils.rate_limits          import verify_limit_of_requests
+from utils.utils                import from_list_to_str, build_url, category_is_empty, required_tags, empty_json
 
-limit = TinyDB("data/rate_limit.json")
-pause = TinyDB("data/hard_pause.json")
-User = Query()
+# Settings
+cfg = Config()
+# Exceptions
+excpt = Exception_Handling()
 
-
-def verify_limit_of_requests(time_unit: str, rate_limit: int, rate_limit_time: int, account:str="default") -> bool:
+def stream(feature):
+    '''
+    Listen to the Blockchain Steem
+    '''
     try:
-        unit = limit.search(((User.name == time_unit)&(User.account == account)))
-        time_limit = generate_time_delta(time_unit, rate_limit_time)
-        if len(unit) >= 1 and unit[0]["date"]:
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            current_date = get_date(unit[0]["date"])
-            if now - current_date < time_limit:
-                if unit[0]["count"] >= rate_limit:
-                    return True
-            else:
-                update_date(time_unit, "", 0, account)
-        return False
+        chain = Steem(node=NODES)
+        # blockchain instance
+        blockchain = Blockchain(blockchain_instance=chain, mode="head")
+        stream = blockchain.stream(opNames=['comment'])  # stream comments only
+        print('Searching...')
+        for post in stream:
+            try:
+                if feature == "tweet_with_the_configured_account":
+                    if verify_limit_of_requests(MINUTES, LIMIT_RATE_FOR_15_MINUTES, TIME_IN_MINUTES_OF_THE_RATE_LIMIT,"default"):
+                        continue
+                    if verify_limit_of_requests(HOURS, LIMIT_RATE_FOR_3_HOURS, TIME_IN_HOURS_OF_THE_RATE_LIMIT,"default"):
+                        continue
+                author = post['author']
+                permlink = post['permlink']
+                category = post['parent_permlink'] if post['parent_permlink'] and not post['parent_author'] else ""
+                json_metadata = json.loads(post["json_metadata"] if post["json_metadata"] else '{ }')
+                try:
+                    tags = [] if not "tags" in json_metadata.keys() else json_metadata["tags"]
+                except AttributeError:
+                    tags = []
+                if author in cfg.list_of_accounts_to_ignore:
+                    continue
+                if cfg.list_of_tags_to_ignore and required_tags(tags,cfg.list_of_tags_to_ignore):
+                    continue
+                if category in cfg.list_of_communities_to_ignore:
+                    continue
+                if post['parent_permlink'] and post['parent_author']:
+                    continue
+                if cfg.rules["only_specific_communities"]["activate"] and not category in cfg.rules["only_specific_communities"]["values"]:
+                    continue
+                if cfg.rules["only_specific_tags"]["activate"] and not required_tags(tags,cfg.rules["only_specific_tags"]["values"]):
+                    continue
+                if cfg.features["personalized_accounts"]["activate"]:
+                    # start action thread
+                    make_a_twet(author, permlink, tags,category, feature)
+                    continue
+                make_a_twet(author, permlink, tags,category, feature)
+            except Exception as e:
+                dict_exceptions = excpt.twet
+                exception_handling(e,"twet",dict_exceptions) 
     except Exception as e:
-        dict_exceptions = Exception_Handling().verify_limit_of_requests
-        exception_handling(e,"verify_limit_of_requests",dict_exceptions) 
-        return True
+        dict_exceptions = excpt.stream
+        exception_handling(e,"stream",dict_exceptions) 
 
-
-def generate_time_delta(time_unit: str, rate_limit_time: int):
-    if time_unit == MINUTES:
-        return timedelta(minutes=rate_limit_time)
-    elif time_unit == HOURS:
-        return timedelta(hours=rate_limit_time)
-    elif time_unit == "days":
-        return timedelta(days=rate_limit_time)
-    raise Exception
-
-
-def get_date(str_date):
+def make_a_twet(author, permlink, tags, category, feature):
     try:
-        if str_date:
-            current_date = datetime.strptime(str_date, "%Y-%m-%d %H:%M:%S")
-            return current_date
+        twet = ""
+        category = category_is_empty(category,tags)
+        url = build_url(BASE_URL,author,permlink,category if category else "")
+        end = f'{from_list_to_str(tags)} {from_list_to_str(cfg.custom_labels)}'
+        twet += f'{cfg.start_comment} \n{url} \n{end} \n{cfg.end_comment}'
+        response = manage_tweets(feature,twet)
+    except Exception as e:
+        if response:
+            print(response)
+        dict_exceptions = excpt.make_a_twet
+        exception_handling(e,"make_a_twet",dict_exceptions) 
+
+
+if __name__ == '__main__':
+    try:
+        empty_json("data/hard_pause.json")
+        empty_json("data/rate_limit.json")
+        count_f = {"count":0,"feature":""}
+        for feature in FEATURES:
+            if cfg.features[feature]["activate"]:
+                count_f["count"] += 1
+                count_f["feature"] = feature
+        if count_f["count"] == 1:
+            print("The bot has started with the feature: " + count_f["feature"])
+            stream(count_f["feature"])
+        elif count_f["count"] > 1:
+            print("The bot could not start because there is more than one feature to publish tweets activated")
         else:
-            return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)
-    except Exception as e:
-        raise e
-
-
-def update_date(time_unit: str, current_date: str, count:int=0,account:str="default"):
-    limit.update({"date": current_date, "count": count},
-                 ((User.name == time_unit) & (User.account == account)))
-
-
-def update_count(time_unit: str, count:int=0, account:str="default"):
-    limit.update({"count": count}, ((User.name == time_unit) & (User.account == account)))
-
-
-def register_or_update(time_unit: str, account:str):
-    try:
-        unit = limit.search(((User.name == time_unit)&(User.account == account)))
-        if unit != []:
-            current_date = unit[0]["date"]
-            if current_date:
-                update_count(time_unit, unit[0]["count"]+1, account)
-            else:
-                now = datetime.now(timezone.utc).replace(tzinfo=None)
-                update_date(time_unit, now.strftime("%Y-%m-%d %H:%M:%S"), 1, account)
-        else:
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            limit.insert({"name": time_unit, "date": now.strftime(
-                "%Y-%m-%d %H:%M:%S"), "count": 1, "account":account})
-    except Exception as e:
-        dict_exceptions = Exception_Handling().register_or_update
-        exception_handling(e,"register_or_update",dict_exceptions) 
-
-
-def hard_pause(account:str):
-    try:
-        record = pause.search((User.account == account))
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        # if there is a record
-        if record:
-            record = record[0]
-            current = record["current"]
-            value_date = get_date(record["date"])
-            hours_limit = generate_time_delta(HOURS,TIME_IN_HOURS_OF_THE_RATE_LIMIT )
-            time_elapsed = now - value_date
-            # If a forced pause of 15 minutes or 3 hours occurred in less than 3 hours and the error of many transactions occurs,
-            # then we stop the bot for 3 hours
-            if (current == MINUTES or current == HOURS) and time_elapsed < hours_limit:
-                pause.update({"current":HOURS, "date": now.strftime("%Y-%m-%d %H:%M:%S")}, 
-                             (User.account == account))	
-                limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_3_HOURS}, 
-                             ((User.account == account)&(User.name==HOURS)))
-            # If a forced pause of 15 minutes or 3 hours occurred in more than 3 hours and the error of many transactions occurs,
-            # then we stop the bot for 15 minutes
-            elif (current == MINUTES or current == HOURS) and time_elapsed >=  hours_limit:
-                pause.update({"current":MINUTES, "date": now.strftime("%Y-%m-%d %H:%M:%S")}, 
-                             (User.account == account))	
-                limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES}, 
-                             ((User.account == account)&(User.name==MINUTES)))
-        # if it doesn't exist, we stop sending tweets for 15 minutes
-        else:
-            pause.insert({"current":MINUTES,"date":now.strftime("%Y-%m-%d %H:%M:%S"),"account":account})
-            limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES}, 
-                            ((User.account == account)&(User.name==MINUTES)))
-            search = limit.search((User.account == account)&(User.name==HOURS))
-            if search:
-                if search[0]["count"] < LIMIT_RATE_FOR_15_MINUTES:
-                    limit.update({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES}, 
-                                   ((User.account == account)&(User.name==MINUTES)))
-            else:
-                limit.insert({"date": now.strftime("%Y-%m-%d %H:%M:%S"), "count": LIMIT_RATE_FOR_15_MINUTES})
-    except Exception as e:
-        dict_exceptions = Exception_Handling().hard_pause
-        exception_handling(e,"hard_pause",dict_exceptions)
+            print("The bot could not start because there is no activated feature")
+    except (KeyboardInterrupt, SystemExit):
+        print("--------------------------------------------------")
+        print("The bot has stopped.")
